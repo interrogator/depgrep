@@ -1,0 +1,7 @@
+pandas
+pyparsing
+nltk
+# ci/test
+flake8
+mypy
+codecov
