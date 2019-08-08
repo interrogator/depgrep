@@ -28,11 +28,9 @@ class DepgrepException(Exception):
     pass
 
 
-def _np_attr(node, pos, cs):
-    if isinstance(node, str):
-        return node if cs else node.lower()
-    return node[pos] if cs else node[pos].lower()
-
+def _np_attr(node, pos, cs, nl):
+    node = node if isinstance(node, str) else node[pos]
+    return node if cs else node.lower()
 
 def _ancestors(node, values):
     """
@@ -188,7 +186,7 @@ def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
         # determine the attribute we want to search (word, lemma, pos, etc)
         if tokens[0][0].lower() in list('siwlxpmgfeo') and not tokens[0].startswith('i@'):
             attr = tokens[0][0].lower()
-            tokens[0] = tokens[0][1:].lower()
+            tokens[0] = tokens[0][1:]
         else:
             attr = 'w'
 
@@ -215,15 +213,9 @@ def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
             assert tokens[0].endswith('/')
             node_lit = tokens[0][1:-1]
             if not case_sensitive:
-                return (
-                    lambda r: lambda n, m=None, el=None: r.search(
-                        _np_attr(n, pos, cs=case_sensitive)
-                    )
-                )(re.compile(node_lit, re.IGNORECASE))
-            else:
-                return (
-                    lambda r: lambda n, m=None, el=None: r.search(
-                        _np_attr(n, pos, cs=case_sensitive)
+                node_lit = node_lit.lower()
+            return (lambda r: lambda n, m=None, el=None: r.search(
+                        _np_attr(n, pos, cs=case_sensitive, nl=node_lit)
                     )
                 )(re.compile(node_lit))
 
