@@ -5,7 +5,7 @@ set -e
 echo "Doing $1 update"
 
 # use python 3.7 virtualenv
-source ~/venv/3.7/bin/activate
+source ~/venv/py3.7/bin/activate
 
 # check formatting
 flake8 depgrep/* tests/* setup.py
