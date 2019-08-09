@@ -32,58 +32,37 @@ def _np_attr(node, pos, cs):
     node = node if isinstance(node, str) else node[pos]
     return node if cs else node.lower()
 
-def _ancestors(node, values):
+def _ancestors(node, values, positions):
     """
     Returns the list of all nodes dominating the given tree node.
     This method will not work with leaf nodes, since there is no way
     to recover the parent.
     """
-    _ancestors = []
-    gov = node['g']
-    sent = values.xs((node.name[0], node.name[1]), level=["f", "s"])
-    while gov:
-        gov_tok = sent.loc[gov]
-        _ancestors.append(gov_tok)
-        gov = gov_tok['g']
-    return _ancestorst.parent()
-    return results
+    gov_id = node[positions['g']]
+    i = node[positions['i']]
+    n = node[positions['_n']]
+    out = [values[n - i + g]]
+    while gov_id:
+        # confirm this calculation, may need adjustment
+        row = values[n - i + g]
+        gov_id = row[positions['g']]
+        out.append(row)
+    return out
 
-
-def _descendants(node, values):
+def _descendants(node, values, positions):
     """
     Returns the list of all nodes which are descended from the given
     tree node in some way.
     """
     raise ValueError('Broken')
-    sent = values.xs((node.name[0], node.name[1]), level=["f", "s"])
-    # a bag of _governors
-    govs = {node.name[2]}
-    size = len(govs)
-
-    while True:
-        # reduce sent to just _dependents
-        children = sent[sent['g'].isin(govs)]
-        # add these dependent ids to possible _governors
-        govs = govs.union(set(children.index))
-        if size == len(govs):
-            break
-        size = len(govs)
-    govs.remove(node.name[2])
-    return [sent.loc[i] for i in govs]
-
 
 def _before(node, values, places=False):
     """
     Returns the set of all nodes that are before the given node.
     """
-    f, s, i = node.name
-    matches = values.loc[f, s, slice(None, i - 1)]
-    aslist = [matches.loc[i] for i in matches.index]
-    if places is not False:
-        places = -places
-        aslist = [aslist[places]]
-    return aslist
-
+    n = node[positions['_n']]
+    i = node[positions['i']]
+    return values[n-i:n]
 
 def _immediately_before(node, values, positions):
     """
@@ -94,30 +73,20 @@ def _immediately_before(node, values, positions):
     symbol (word) produced by A immediately follows the last
     terminal symbol produced by B.
     """
-    if isinstance(node, pd.Series):
-        i = node._n - 1
-    else:
-        i = node[positions['_n']] - 1
+    i = node[positions['_n']] - 1
     try:
-        return [values.iloc[i]]
+        return [values[i]]
     except:
-        try:
-            return [values[i]]
-        except:
-            return list()
-
+        return list()
 
 def _after(node, values, places=False):
     """
     Returns the set of all nodes that are after the given node.
     """
-    f, s, i = node.name
-    matches = values.loc[f, s, slice(i + 1, None)]
-    aslist = [matches.loc[i] for i in matches.index]
-    if places is not False:
-        aslist = [aslist[places - 1]]
-    return aslist
-
+    sent_len = node[positions['sent_len']]
+    n = node[positions['_n']]
+    i = node[positions['i']]
+    return values[n+1:n+sent_len-n]
 
 def _immediately_after(node, values, positions):
     """
@@ -128,19 +97,11 @@ def _immediately_after(node, values, positions):
     symbol (word) produced by A immediately follows the last
     terminal symbol produced by B.
     """
-    if isinstance(node, pd.Series):
-        i = node._n + 1
-    else:
-        i = node[positions['_n']] + 1
-
+    i = node[positions['_n']] + 1
     try:
-        return [values.iloc[i]]
+        return [values[i]]
     except:
-        try:
-            return [values[i]]
-        except:
-            return []
-
+        return list()
 
 def _depgrep_macro_use_action(_s, _l, tokens):
     """
