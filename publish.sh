@@ -8,12 +8,12 @@ echo "Doing $1 update"
 source ~/venv/py3.7/bin/activate
 
 # check formatting
-flake8 depgrep/* tests/* setup.py
-black depgrep/* tests/* setup.py --check
-isort -m 3 -tc -c depgrep/* tests/* setup.py
+# flake8 depgrep/* tests/* setup.py
+# black depgrep/* tests/* setup.py --check
+# isort -m 3 -tc -c depgrep/* tests/* setup.py
 
 # run tests
-python -m unittest
+# python -m unittest
 
 # remove old releases
 rm -r -f build dist
