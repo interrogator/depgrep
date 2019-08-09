@@ -11,7 +11,7 @@ def read(fname):
 
 setup(
     name='depgrep',
-    version='0.1.0',  # DO NOT EDIT THIS LINE MANUALLY. LET bump2version UTILITY DO IT
+    version='0.1.1',  # DO NOT EDIT THIS LINE MANUALLY. LET bump2version UTILITY DO IT
     author='Danny McDonald',
     author_email='mcddjx@gmail.com',
     description='Dependency parse searching',

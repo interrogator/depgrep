@@ -1,3 +1,3 @@
 from .depgrep import depgrep_compile
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
