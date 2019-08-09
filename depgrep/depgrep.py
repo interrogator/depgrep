@@ -28,7 +28,7 @@ class DepgrepException(Exception):
     pass
 
 
-def _np_attr(node, pos, cs, nl):
+def _np_attr(node, pos, cs):
     node = node if isinstance(node, str) else node[pos]
     return node if cs else node.lower()
 
@@ -215,7 +215,7 @@ def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
             if not case_sensitive:
                 node_lit = node_lit.lower()
             return (lambda r: lambda n, m=None, el=None: r.search(
-                        _np_attr(n, pos, cs=case_sensitive, nl=node_lit)
+                        _np_attr(n, pos, cs=case_sensitive)
                     )
                 )(re.compile(node_lit))
 
