@@ -27,7 +27,8 @@ Then, in Python:
 from buzz import Corpus
 corpus = Corpus('path/to/conll/files')
 query = 'l"have"'  # match the lemma "have"
-results = corpus.depgrep(query)
+# global case sensitivity control:
+results = corpus.depgrep(query, case_sensitive=False)
 ```
 
 ## Syntax
@@ -49,6 +50,14 @@ f : dependency role
 i : index in sentence
 s : sentence number
 ```
+
+By default, node matching is case-sensitive. You can use the case-insensitive flag, `(?i)`, at the start of the regex. The following query matches words ending in *ing*, *ING*, *Ing*, etc:
+
+```
+w/(?i)ing$/
+```
+
+For case-insensitivity across the query, use the `case_sensitive=False` keyword argument.
 
 ### Relations
 
