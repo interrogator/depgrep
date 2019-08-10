@@ -69,22 +69,22 @@ a <-N b : a is descendeent of b by N generations
 
 a -> b  : a is the governor of a
 a ->> b : a is an ancestor of b, with any distance in between
-a ->: b : a is the only governor  of b (as is normal in many grammars)
+a ->: b : a is the only governor of b (as is normal in many grammars)
 a ->N b : a is ancestor of b by N generations
 
 a + b   : a is immediately to the left of b
-a ++ b  : a is two places to the left of b
-a +++ b : a is three places to the left of b (...)
 a +N b  : a is N places to the left of b
 a <| b  : a is left of b, with any distance in between
 
 a - b   : a is immediately to the right of b
-a -- b  : a is two places to the right of b
-a --- b : a is three places to the right of b
 a -N b  : a is n places to the right of b
 a |> b  : a is right of b, with any distance in between
 
-a $ b   : a and b share a governor
+a $ b   : a and b share a governor (i.e. are sisters)
+
+a $> b  : a is a sister of and to the right of b.
+a $< b  : a is a sister of and to the left of b.
+
 ```
 
 ### Negation

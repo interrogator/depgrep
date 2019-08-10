@@ -41,28 +41,47 @@ def _ancestors(node, values, positions):
     gov_id = node[positions['g']]
     i = node[positions['i']]
     n = node[positions['_n']]
-    out = [values[n - i + g]]
-    while gov_id:
+    out = [values[n - i + gov_id]]
+    # in case there is some kind of missing link
+    depth = 10
+    while gov_id and depth:
         # confirm this calculation, may need adjustment
-        row = values[n - i + g]
+        row = values[n - i + gov_id]
         gov_id = row[positions['g']]
         out.append(row)
+        depth -= 1
     return out
 
-def _descendants(node, values, positions):
+def _descendants(node, values, positions, depth=5):
     """
-    Returns the list of all nodes which are descended from the given
-    tree node in some way.
+    Recursively get all dependents
     """
-    raise ValueError('Broken')
+    out = list()
+    if not depth:
+        return out
+    # cut down to sentence but only first time
+    sent = _sentence(node, values, positions) if depth == 5 else values
+    # all dependents of this node
+    dep_of_node = sent[sent[:,positions['g']] == node[positions['i']]]
+    # for each, run recursively
+    for dep in dep_of_node:
+        out.append(dep)
+        out += _descendants(dep, sent, positions, depth-1)
+    return out
 
-def _before(node, values, places=False):
+def _before(node, values, positions, places=False):
     """
     Returns the set of all nodes that are before the given node.
     """
     n = node[positions['_n']]
+    if places is not False:
+        try:
+            return [values[n-places]]
+        except IndexError:
+            return list()
     i = node[positions['i']]
-    return values[n-i:n]
+    return values[n+1-i:n]
+
 
 def _immediately_before(node, values, positions):
     """
@@ -79,12 +98,18 @@ def _immediately_before(node, values, positions):
     except:
         return list()
 
-def _after(node, values, places=False):
+def _after(node, values, positions, places=False):
     """
     Returns the set of all nodes that are after the given node.
     """
-    sent_len = node[positions['sent_len']]
+
     n = node[positions['_n']]
+    if places is not False:
+        try:
+            return [values[n+places]]
+        except IndexError:
+            return list()
+    sent_len = node[positions['sent_len']]
     i = node[positions['i']]
     return values[n+1:n+sent_len-n]
 
@@ -225,12 +250,13 @@ def _governor(row, values, positions):
     """
     Get governor of row as row from values
     """
-    if not row[positions['g']]:
+    g = row[positions['g']]
+    if not g:
         return 'ROOT'
     else:
         i = row[positions['i']]
         n = row[positions['_n']]
-        return [values[n - int(i) + row[positions['g']]]]
+        return values[n - i + g]
 
 
 def _sentence(row, values, positions):
@@ -248,10 +274,7 @@ def _dependents(row, values, positions):
     """
     sent = _sentence(row, values, positions)
     i = row[positions['i']]
-    try:
-        return sent[sent[:, positions['g']] == i]
-    except:
-        return sent[sent[:, positions['g']] == row[positions['i']]]
+    return sent[sent[:, positions['g']] == row[positions['i']]]
 
 
 def _governors(row, values, positions):
@@ -262,34 +285,42 @@ def _governors(row, values, positions):
     return [_governor(row, values, positions)]
 
 
-def _has_dependent(row, values, positions):
+def _has_dependent(node, values, positions):
     """
     Check if dependents exist
 
     Return: bool
     """
-    sent = _sentence(row, values, positions)
-    return sent[sent[positions['g']] == row[positions['i']]].any()
+    sent = _sentence(node, values, positions)
+    return sent[positions['g']] == node[positions['i']].any()
 
 
-def _has_governor(row, positions):
+def _has_governor(node, positions):
     """
-    Check if governor exists
+    Check if governor exists (is not root)
 
     Return: bool
     """
-    return row[positions['g']] not in ['_', '0', 0]
+    return bool(node[positions['g']])
 
 
-def _sisters(row, values, positions):
+def _sisters(node, values, positions):
     """
-    Give a list of tokens sharing a governor, but not row
+    Give a list of tokens sharing a governor, but not node
     """
-    sent = _sentence(row, values, positions)
-    sent = sent[sent[positions['g']] == row[positions['g']]]
-    # almost definitely broken
-    return sent.drop(getattr(row, 'name', tuple(row[:3])), errors='ignore')
+    sent = _sentence(node, values, positions)
+    i = node[positions['i']]
+    same_gov = sent[sent[:,positions['g']] == node[positions['g']]]
+    return [r for r in same_gov if r[positions['i']] != i]
 
+def _is_only_child_of_parent(node, values, positions):
+    governor = _governor(node, values, positions)
+    if isinstance(governor, str) and governor == 'ROOT':
+        return False
+    deps = _dependents(governor, values, positions)
+    if len(deps) != 1:
+        return False
+    return deps[0][positions['i']] == node[positions['i']]
 
 def _depgrep_relation_action(_s, _l, tokens, values, positions):
     """
@@ -321,7 +352,7 @@ def _depgrep_relation_action(_s, _l, tokens, values, positions):
             )
         # A <- B       A is a dependent of B.
         elif operator == '<-':
-            retval = lambda n, m=None, el=None: (any(predicate(x, m, el) for x in _governor(n, values, positions)))
+            retval = lambda n, m=None, el=None: (predicate(_governor(n, values, positions)))
 
         # A ->> B      A dominates B (A is an ancestor of B).
         elif operator == '->>':
@@ -332,7 +363,7 @@ def _depgrep_relation_action(_s, _l, tokens, values, positions):
         elif operator == '<<-':
             retval = lambda n, m=None, el=None: any(predicate(x, m, el) for x in _ancestors(n, values, positions))
 
-        # A ->: B      B is the only child of A
+        # A ->: B      B is the only dependent of A
         elif operator == '->:':
             retval = lambda n, m=None, el=None: (
                 len(_dependents(n, values, positions)) == 1 and predicate(_dependents(n, values, positions)[0], m, el)
@@ -341,11 +372,12 @@ def _depgrep_relation_action(_s, _l, tokens, values, positions):
         # A <-: B      A is the only child of B.
         elif operator == '<-:':
             retval = lambda n, m=None, el=None: (
-                len(_governors(n, values, positions)) == 1 and predicate(_governor(n, values, positions), m, el)
+                _is_only_child_of_parent(n, values, positions) and predicate(_governor(n, values, positions), m, el)
             )
         # A ->N B      B is the Nth child of A (the first child is <1).
+        # todo: broken?
         elif operator[:2] == '->' and operator[2:].isdigit():
-            idx = int(operator[1:])
+            idx = int(operator[2:])
             # capture the index parameter
             retval = (
                 lambda i: lambda n, m=None, el=None: (
@@ -418,50 +450,43 @@ def _depgrep_relation_action(_s, _l, tokens, values, positions):
                 predicate(x, m, el) for x in _immediately_before(n, values, positions)
             )
 
-        # A .. B      A precedes B.
+        # A <| B      A precedes B.
         elif operator == '<|':
             retval = lambda n, m=None, el=None: any(predicate(x, m, el) for x in _after(n, values, positions))
-        # A ,, B      A follows B.
+        # A |> B      A follows B.
         elif operator == '|>':
             retval = lambda n, m=None, el=None: any(predicate(x, m, el) for x in _before(n, values, positions))
         # todo: precedes/follows by maximum distance....
 
-        # A .N B      A is N places to the left of B
-        elif all(i == '+' for i in operator) or (
-            all(i == '+' for i in operator[:-1]) and operator[-1].isdigit()
-        ):
-            if operator[-1].isdigit():
-                num = int(operator[-1])
-            else:
-                num = len(operator)
+        # A +N B      A is N places to the left of B
+        elif operator[0] == '+' and operator[1:].isdigit():
+            num = int(operator[1:])
             retval = lambda n, m=None, el=None: any(
-                predicate(x, m, el) for x in _after(n, values, places=num)
+                predicate(x, m, el) for x in _after(n, values, positions, places=num)
             )
 
-        # A ,N B      A is N places to the right of B
-        elif all(i == '-' for i in operator) or (
-            all(i == '-' for i in operator[:-1]) and operator[-1].isdigit()
-        ):
-            if operator[-1].isdigit():
-                num = int(operator[-1])
-            else:
-                num = len(operator)
+        # A -N B      A is N places to the right of B
+        elif operator[0] == '-' and operator[1:].isdigit():
+            num = int(operator[1:])
             retval = lambda n, m=None, el=None: any(
-                predicate(x, m, el) for x in _before(n, values, places=num)
+                predicate(x, m, el) for x in _before(n, values, positions, places=num)
             )
 
         # A $ B       A is a sister of B (and A != B).
         elif operator == '$' or operator == '%':
             retval = lambda n, m=None, el=None: (
-                _has_governor(n) and any(predicate(x, m, el) for x in _sisters(n, values, positions))
+                _has_governor(n, positions) and any(predicate(x, m, el) for x in _sisters(n, values, positions))
             )
 
-        elif operator == '<$' or operator == '%..':
-            raise NotImplementedError()
+        elif operator == '$<' or operator == '%..':
+            retval = lambda n, m=None, el=None: (any(predicate(x, m, el) for x in _sisters(n, values, positions) and 
+                any(predicate(x, m, el) for x in _after(n, values, positions))))
 
-        # A $,, B     A is a sister of and follows B.
+        # A $> B     A is a sister of and follows B.
         elif operator == '$>' or operator == '%,,':
-            raise NotImplementedError()
+            retval = lambda n, m=None, el=None: (any(predicate(x, m, el) for x in _sisters(n, values, positions) and 
+                any(predicate(x, m, el) for x in _before(n, values, positions))))
+
         else:
             raise DepgrepException('cannot interpret depgrep operator "{0}"'.format(operator))
     # now return the built function
