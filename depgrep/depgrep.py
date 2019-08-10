@@ -143,6 +143,22 @@ def _depgrep_macro_use_action(_s, _l, tokens):
 
     return macro_use
 
+def _fix_tokens_hack(tokens):
+    """
+    Hack until i figure out why x/noun/ is tokenised as two tokens
+    """
+    fixed = []
+    skips = []
+    for i, t in enumerate(tokens):
+        if i in skips:
+            continue
+        if t in list('siwlxpmgfeo'):
+            fixed.append(t + tokens[i+1])
+            skips.append(i+1)
+        else:
+            fixed.append(t)
+    return fixed
+
 
 def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
     """
@@ -154,6 +170,8 @@ def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
         # strip initial apostrophe (depgrep2 print command)
         tokens = tokens[1:]
     if len(tokens) > 1:
+        print('TOKENS', tokens)
+        tokens = _fix_tokens_hack(tokens)
         # disjunctive definition of a node name
         assert list(set(tokens[1::2])) == ['|']
         # recursively call self to interpret each node name definition
@@ -769,7 +787,7 @@ def _build_depgrep_parser(values, positions, case_sensitive=False):
         )
         + ')'
     )
-    depgrep_node_label = pyparsing.Regex('[A-Za-z0-9]+')
+    depgrep_node_label = pyparsing.Regex('[A-Za-z0-9]')
     depgrep_node_label_use = pyparsing.Combine('=' + depgrep_node_label)
     # see _depgrep_segmented_pattern_action
     depgrep_node_label_use_pred = depgrep_node_label_use.copy()

@@ -50,8 +50,6 @@ i : index in sentence
 s : sentence number
 ```
 
-If your corpus has metadata fields, you can also incorporate these: `speaker"TONY"` will match tokens with TONY given as speaker. Since such metadata is given at sentence level, however, it is probably better to first reduce your DataFrame to sentences with the correct metadata.
-
 ### Relations
 
 Relations specify the relationship between nodes. For example, we can use `f"nsubj" <- f"ROOT"` to locate nominal subjects governed by nodes in the role of *ROOT*. The thing you want to find is the leftmost node in the query. So, while the above query finds nominal subject tokens, you could use inverse relation, `f"ROOT" -> f"nsubj"` to return the ROOT tokens.
@@ -65,7 +63,7 @@ a & b   : a and b are the same node (same as =)
 a <- b  : a is a dependent of b
 a <<- b : a is a descendent of b, with any distance in between
 a <-: b : a is the only dependent of b
-a <-N b : a is descendeent of b by N generations
+a <-N b : a is descendent of b by N generations
 
 a -> b  : a is the governor of a
 a ->> b : a is an ancestor of b, with any distance in between
@@ -96,7 +94,31 @@ Add `!` before a relation to negate it: `f"ROOT" != x"VERB"` will find non-verba
 Brackets can be used to make more complex queries:
 
 ```
-(f"amod" = l/^[abc]/) <- (f/nsubj/ != x/NOUN/)
+f"amod" = l/^[abc]/ <- (f/nsubj/ != x/NOUN/)
 ```
 
-translates to *match adjectival modifiers starting with a, b or c, which are governed by nominal subjects that are not nouns*
+The above translates to *match adjectival modifiers starting with a, b or c, which are governed by nominal subjects that are not nouns*
+
+Note that **without** brackets, each relation/node refers to the leftmost node. In the following, the plural noun must be the same node as the *nsubj*, not the *ROOT*:
+
+```
+f"nsubj" <- f"ROOT" = p"NNS"
+```
+
+### *Or* expressions
+
+You can use the pipe (`|`) to create an *OR* expression.
+
+```
+x"NOUN" <- f"ROOT" | = p"NNS"
+```
+
+Above, we match nouns that are either governed by *ROOT*, or are plural.
+
+### Wildcard
+
+You can use `__` or `*` to stand in for any token. To match any token that is the governor of a verb, do:
+
+```
+__ -> x"VERB"
+```
