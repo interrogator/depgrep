@@ -143,23 +143,6 @@ def _depgrep_macro_use_action(_s, _l, tokens):
 
     return macro_use
 
-def _fix_tokens_hack(tokens):
-    """
-    Hack until i figure out why x/noun/ is tokenised as two tokens
-    """
-    fixed = []
-    skips = []
-    for i, t in enumerate(tokens):
-        if i in skips:
-            continue
-        if t in list('siwlxpmgfeo'):
-            fixed.append(t + tokens[i+1])
-            skips.append(i+1)
-        else:
-            fixed.append(t)
-    return fixed
-
-
 def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
     """
     Builds a lambda function representing a predicate on a tree node
@@ -170,8 +153,6 @@ def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
         # strip initial apostrophe (depgrep2 print command)
         tokens = tokens[1:]
     if len(tokens) > 1:
-        print('TOKENS', tokens)
-        tokens = _fix_tokens_hack(tokens)
         # disjunctive definition of a node name
         assert list(set(tokens[1::2])) == ['|']
         # recursively call self to interpret each node name definition
@@ -189,22 +170,23 @@ def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
 
         # determine the attribute we want to search (word, lemma, pos, etc)
         if tokens[0][0].lower() in list('siwlxpmgfeo') and not tokens[0].startswith('i@'):
-            attr = tokens[0][0].lower()
+            attr = tokens[0][0]
             tokens[0] = tokens[0][1:]
-        else:
-            attr = 'w'
+            # if the attr was lowercase, it is case insensitive
+            if attr.islower():
+                tokens[0] = tokens[0].lower()
+            else:
+                case_sensitive = True
 
         pos = positions[attr]
 
         # if the token is 'anything', just return true
-        if tokens[0] == '*' or tokens[0] == '__':
+        if tokens[0] in {'*', '__'}:
             return lambda n, m=None, el=None: True
         # if it's a quote, it must be an exact match
         elif tokens[0].startswith('"'):
             assert tokens[0].endswith('"')
             node_lit = tokens[0][1:-1].replace('\\"', '"').replace('\\\\', '\\')
-            if not case_sensitive:
-                node_lit = node_lit.lower()
             node_lit = node_lit.split(',')
             return (
                 lambda s: lambda n, m=None, el=None: any(
@@ -216,8 +198,6 @@ def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
         elif tokens[0].startswith('/'):
             assert tokens[0].endswith('/')
             node_lit = tokens[0][1:-1]
-            if not case_sensitive:
-                node_lit = node_lit.lower()
             return (lambda r: lambda n, m=None, el=None: r.search(
                         _np_attr(n, pos, cs=case_sensitive)
                     )
@@ -248,28 +228,13 @@ def _depgrep_parens_action(_s, _l, tokens):
     return tokens[1]
 
 
-def _depgrep_nltk_tree_pos_action(_s, _l, tokens):
-    """
-    Builds a lambda function representing a predicate on a tree node
-    which returns true if the node is located at a specific tree
-    position.
-    """
-    # recover the tuple from the parsed sting
-    node_tree_position = tuple(int(x) for x in tokens if x.isdigit())
-    # capture the node's tree position
-    return (
-        lambda i: lambda n, m=None, el=None: (
-            hasattr(n, 'treeposition') and n.treeposition() == i
-        )
-    )(node_tree_position)
-
-
 def _governor(row, values, positions):
     """
     Get governor of row as row from values
     """
     g = row[positions['g']]
     if not g:
+        # return row
         return 'ROOT'
     else:
         i = row[positions['i']]
@@ -334,6 +299,8 @@ def _sisters(node, values, positions):
 def _is_only_child_of_parent(node, values, positions):
     governor = _governor(node, values, positions)
     if isinstance(governor, str) and governor == 'ROOT':
+        return False
+    if not governor[positions['g']]:
         return False
     deps = _dependents(governor, values, positions)
     if len(deps) != 1:
@@ -549,7 +516,6 @@ def _depgrep_conjunction_action(_s, _l, tokens, join_char='&'):
             )
         )(tokens)
 
-
 def _depgrep_node_label_use_action(_s, _l, tokens):
     """
     Returns the node label used to begin a tgrep_expr_labeled.  See
@@ -759,34 +725,11 @@ def _build_depgrep_parser(values, positions, case_sensitive=False):
     """
     depgrep_op = pyparsing.Optional('!') + pyparsing.Regex(r'[$%,.<>&-\|\+][%,.<>0-9\-\':\|]*')
     # match the node type info
-    node_attr = pyparsing.Optional(pyparsing.Word('siwlxpmgfeoSIWLXPMGFEO', max=1))
-    # match regex nodes
-    depgrep_node_regex = node_attr + pyparsing.QuotedString(
-        quoteChar='/', escChar='\\', unquoteResults=False
-    )
-    # match string nodes
-    depgrep_qstring = node_attr + pyparsing.QuotedString(
-        quoteChar='"', escChar='\\', unquoteResults=False
-    )
-
-    depgrep_qstring_icase = pyparsing.Regex('i@\\"(?:[^"\\n\\r\\\\]|(?:\\\\.))*\\"')
-    depgrep_node_regex_icase = pyparsing.Regex('i@\\/(?:[^/\\n\\r\\\\]|(?:\\\\.))*\\/')
-    depgrep_node_literal = pyparsing.Regex('[^][ \r\t\n;:.,&|<>()$!@%\'^=]+')
+    node_attr = pyparsing.Regex(r'[siwlxpmgfeoSIWLXPMGFEO][/\"][^/\"]+[/\"]')
+    depgrep_node_literal = pyparsing.Regex(r'__|\*')
     depgrep_expr = pyparsing.Forward()
     depgrep_relations = pyparsing.Forward()
     depgrep_parens = pyparsing.Literal('(') + depgrep_expr + ')'
-    depgrep_nltk_tree_pos = (
-        pyparsing.Literal('N(')
-        + pyparsing.Optional(
-            pyparsing.Word(pyparsing.nums)
-            + ','
-            + pyparsing.Optional(
-                pyparsing.delimitedList(pyparsing.Word(pyparsing.nums), delim=',')
-                + pyparsing.Optional(',')
-            )
-        )
-        + ')'
-    )
     depgrep_node_label = pyparsing.Regex('[A-Za-z0-9]')
     depgrep_node_label_use = pyparsing.Combine('=' + depgrep_node_label)
     # see _depgrep_segmented_pattern_action
@@ -796,12 +739,8 @@ def _build_depgrep_parser(values, positions, case_sensitive=False):
     macro_use = pyparsing.Combine('@' + macro_name)
     depgrep_node_expr = (
         depgrep_node_label_use_pred
+        | node_attr
         | macro_use
-        | depgrep_nltk_tree_pos
-        | depgrep_qstring_icase
-        | depgrep_node_regex_icase
-        | depgrep_qstring
-        | depgrep_node_regex
         | '*'
         | depgrep_node_literal
     )
@@ -843,7 +782,6 @@ def _build_depgrep_parser(values, positions, case_sensitive=False):
     )
     depgrep_node_expr2.setParseAction(_depgrep_bind_node_label_action)
     depgrep_parens.setParseAction(_depgrep_parens_action)
-    depgrep_nltk_tree_pos.setParseAction(_depgrep_nltk_tree_pos_action)
     depgrep_relation.setParseAction(lambda x, y, z: _depgrep_relation_action(x,
                                                                              y,
                                                                              z,
