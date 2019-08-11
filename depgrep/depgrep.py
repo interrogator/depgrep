@@ -178,7 +178,7 @@ def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
             else:
                 case_sensitive = True
 
-        pos = positions[attr]
+        pos = positions[attr.lower()]
 
         # if the token is 'anything', just return true
         if tokens[0] in {'*', '__'}:
