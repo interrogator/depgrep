@@ -117,8 +117,11 @@ f"nsubj" <- f"ROOT" = p"NNS"
 You can use the pipe (`|`) to create an *OR* expression.
 
 ```
+# match all kinds of modifiers
+x"ADJ" | f"amod" | f"appos" | p/^JJ/
 x"NOUN" <- f"ROOT" | = p"NNS"
 ```
+
 
 Above, we match nouns that are either governed by *ROOT*, or are plural.
 

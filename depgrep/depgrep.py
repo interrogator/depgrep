@@ -175,6 +175,7 @@ def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
             # if the attr was lowercase, it is case insensitive
             if attr.islower():
                 tokens[0] = tokens[0].lower()
+                case_sensitive = False
             else:
                 case_sensitive = True
 
@@ -724,8 +725,8 @@ def _build_depgrep_parser(values, positions, case_sensitive=False):
     interpreting depgrep search strings.
     """
     depgrep_op = pyparsing.Optional('!') + pyparsing.Regex(r'[$%,.<>&-\|\+][%,.<>0-9\-\':\|]*')
-    # match the node type info
-    node_attr = pyparsing.Regex(r'[siwlxpmgfeoSIWLXPMGFEO][/\"][^/\"]+[/\"]')
+    # match the node type info. quoted string leads to tokenisation errors
+    depgrep_node_attr = pyparsing.Regex(r'[siwlxpmgfeoSIWLXPMGFEO][/\"][^/\"]+[/\"]')
     depgrep_node_literal = pyparsing.Regex(r'__|\*')
     depgrep_expr = pyparsing.Forward()
     depgrep_relations = pyparsing.Forward()
@@ -739,7 +740,7 @@ def _build_depgrep_parser(values, positions, case_sensitive=False):
     macro_use = pyparsing.Combine('@' + macro_name)
     depgrep_node_expr = (
         depgrep_node_label_use_pred
-        | node_attr
+        | depgrep_node_attr
         | macro_use
         | '*'
         | depgrep_node_literal
