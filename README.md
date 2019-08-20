@@ -3,7 +3,7 @@
 Dependency parse searching for CONLL-U DataFrames
 
 <!--- Don't edit the version line below manually. Let bump2version do it for you. -->
-> Version 0.1.2
+> Version 0.1.3
 
 > Note: this tool currently doesn't have tests, CI, etc. It is not yet advised to use this tool outside of the depgrep methods provided by the `buzz` library.
 
