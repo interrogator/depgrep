@@ -1,21 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-#
-# Natural Language Toolkit: depgrep search
-#
-# Copyright (C) 2001-2019 NLTK Project
-# Author: Will Roberts <wildwilhelm@gmail.com>
-# URL: <http://nltk.org/>
-# For license information, see LICENSE.TXT
 
 """
 depgrep, modified from nltk tgrep
 """
 
+
 import functools
 import re
 
 import pyparsing
+
+from . import locate
 
 
 class DepgrepException(Exception):
@@ -29,107 +25,6 @@ class DepgrepException(Exception):
 def _np_attr(node, pos, cs):
     node = node if isinstance(node, str) else node[pos]
     return node if cs else node.casefold()
-
-
-def _ancestors(node, values, positions):
-    """
-    Returns the list of all nodes dominating the given tree node.
-    This method will not work with leaf nodes, since there is no way
-    to recover the parent.
-    """
-    gov_id = node[positions["g"]]
-    i = node[positions["i"]]
-    n = node[positions["_n"]]
-    out = [values[n - i + gov_id]]
-    # in case there is some kind of missing link
-    depth = 10
-    while gov_id and depth:
-        # confirm this calculation, may need adjustment
-        row = values[n - i + gov_id]
-        gov_id = row[positions["g"]]
-        out.append(row)
-        depth -= 1
-    return out
-
-
-def _descendants(node, values, positions, depth=5):
-    """
-    Recursively get all dependents
-    """
-    out = list()
-    if not depth:
-        return out
-    # cut down to sentence but only first time
-    sent = _sentence(node, values, positions) if depth == 5 else values
-    # all dependents of this node
-    dep_of_node = sent[sent[:, positions["g"]] == node[positions["i"]]]
-    # for each, run recursively
-    for dep in dep_of_node:
-        out.append(dep)
-        out += _descendants(dep, sent, positions, depth - 1)
-    return out
-
-
-def _before(node, values, positions, places=False):
-    """
-    Returns the set of all nodes that are before the given node.
-    """
-    n = node[positions["_n"]]
-    if places is not False:
-        try:
-            return [values[n - places]]
-        except IndexError:
-            return list()
-    i = node[positions["i"]]
-    return values[n + 1 - i : n]
-
-
-def _immediately_before(node, values, positions):
-    """
-    Returns the set of all nodes that are immediately after the given
-    node.
-
-    Tree node A immediately follows node B if the first terminal
-    symbol (word) produced by A immediately follows the last
-    terminal symbol produced by B.
-    """
-    i = node[positions["_n"]] - 1
-    try:
-        return [values[i]]
-    except:
-        return list()
-
-
-def _after(node, values, positions, places=False):
-    """
-    Returns the set of all nodes that are after the given node.
-    """
-
-    n = node[positions["_n"]]
-    if places is not False:
-        try:
-            return [values[n + places]]
-        except IndexError:
-            return list()
-    sent_len = node[positions["sent_len"]]
-    i = node[positions["i"]]
-    return values[n + 1 : n + sent_len - n]
-
-
-def _immediately_after(node, values, positions):
-    """
-    Returns the set of all nodes that are immediately after the given
-    node.
-
-    Tree node A immediately follows node B if the first terminal
-    symbol (word) produced by A immediately follows the last
-    terminal symbol produced by B.
-    """
-    i = node[positions["_n"]] + 1
-    try:
-        return [values[i]]
-    except:
-        return list()
 
 
 def _depgrep_macro_use_action(_s, _l, tokens):
@@ -148,7 +43,7 @@ def _depgrep_macro_use_action(_s, _l, tokens):
     return macro_use
 
 
-def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
+def _depgrep_node_action(_s, _l, tokens, positions, cs=False):
     """
     Builds a lambda function representing a predicate on a tree node
     depending on the name of its node.
@@ -162,9 +57,7 @@ def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
         assert list(set(tokens[1::2])) == ["|"]
         # recursively call self to interpret each node name definition
         tokens = [
-            _depgrep_node_action(
-                None, None, [node], positions, case_sensitive=case_sensitive
-            )
+            _depgrep_node_action(None, None, [node], positions, cs=cs)
             for node in tokens[::2]
         ]
         # capture tokens and return the disjunction
@@ -186,9 +79,9 @@ def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
             # if the attr was lowercase, it is case insensitive
             if attr.islower():
                 tokens[0] = tokens[0].casefold()
-                case_sensitive = False
+                cs = False
             else:
-                case_sensitive = True
+                cs = True
 
         pos = positions[attr.lower()]
 
@@ -202,7 +95,7 @@ def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
             node_lit = node_lit.split(",")
             return (
                 lambda s: lambda n, m=None, el=None: any(
-                    _np_attr(n, pos, cs=case_sensitive) == x for x in s
+                    _np_attr(n, pos, cs=cs) == x for x in s
                 )
             )(node_lit)
 
@@ -211,29 +104,20 @@ def _depgrep_node_action(_s, _l, tokens, positions, case_sensitive=False):
             assert tokens[0].endswith("/")
             node_lit = tokens[0][1:-1]
             return (
-                lambda r: lambda n, m=None, el=None: r.search(
-                    _np_attr(n, pos, cs=case_sensitive)
-                )
+                lambda r: lambda n, m=None, el=None: r.search(_np_attr(n, pos, cs=cs))
             )(re.compile(node_lit))
 
         elif tokens[0].startswith("i@"):
             node_func = _depgrep_node_action(
-                _s,
-                _l,
-                [tokens[0][2:].lower()],
-                positions,
-                case_sensitive=case_sensitive,
+                _s, _l, [tokens[0][2:].lower()], positions, cs=cs,
             )
             return (
-                lambda f: lambda n, m=None, el=None: f(
-                    _np_attr(n, pos, cs=case_sensitive).lower()
-                )
+                lambda f: lambda n, m=None, el=None: f(_np_attr(n, pos, cs=cs).lower())
             )(node_func)
         else:
-            return (
-                lambda s: lambda n, m=None, el=None: _np_attr(n, pos, cs=case_sensitive)
-                == s
-            )(tokens[0])
+            return (lambda s: lambda n, m=None, el=None: _np_attr(n, pos, cs=cs) == s)(
+                tokens[0]
+            )
 
 
 def _depgrep_parens_action(_s, _l, tokens):
@@ -246,86 +130,6 @@ def _depgrep_parens_action(_s, _l, tokens):
     assert tokens[0] == "("
     assert tokens[2] == ")"
     return tokens[1]
-
-
-def _governor(row, values, positions):
-    """
-    Get governor of row as row from values
-    """
-    g = row[positions["g"]]
-    if not g:
-        # return row
-        return "ROOT"
-    else:
-        i = row[positions["i"]]
-        n = row[positions["_n"]]
-        return values[n - i + g]
-
-
-def _sentence(row, values, positions):
-    slen = row[positions["sent_len"]]
-    rn = row[positions["_n"]]
-    i = row[positions["i"]]
-    start = rn - i + 1
-    end = start + slen
-    return values[start:end]
-
-
-def _dependents(row, values, positions):
-    """
-    Get list of dependents of row as rows from values
-    """
-    sent = _sentence(row, values, positions)
-    return sent[sent[:, positions["g"]] == row[positions["i"]]]
-
-
-def _governors(row, values, positions):
-    """
-    Sometimes we need a list of _governors, but only one is possible
-    So, here we just return a one-item list
-    """
-    return [_governor(row, values, positions)]
-
-
-def _has_dependent(node, values, positions):
-    """
-    Check if dependents exist
-
-    Return: bool
-    """
-    sent = _sentence(node, values, positions)
-    return sent[positions["g"]] == node[positions["i"]].any()
-
-
-def _has_governor(node, positions):
-    """
-    Check if governor exists (is not root)
-
-    Return: bool
-    """
-    return bool(node[positions["g"]])
-
-
-def _sisters(node, values, positions):
-    """
-    Give a list of tokens sharing a governor, but not node
-    """
-    sent = _sentence(node, values, positions)
-    i = node[positions["i"]]
-    same_gov = sent[sent[:, positions["g"]] == node[positions["g"]]]
-    return [r for r in same_gov if r[positions["i"]] != i]
-
-
-def _is_only_child_of_parent(node, values, positions):
-    governor = _governor(node, values, positions)
-    if isinstance(governor, str) and governor == "ROOT":
-        return False
-    if not governor[positions["g"]]:
-        return False
-    deps = _dependents(governor, values, positions)
-    if len(deps) != 1:
-        return False
-    return deps[0][positions["i"]] == node[positions["i"]]
 
 
 def _depgrep_relation_action(_s, _l, tokens, values, positions):
@@ -354,37 +158,41 @@ def _depgrep_relation_action(_s, _l, tokens, values, positions):
         # A -> B       A governs B.
         elif operator == "->":
             retval = lambda n, m=None, el=None: (
-                any(predicate(x, m, el) for x in _dependents(n, values, positions))
+                any(
+                    predicate(x, m, el) for x in locate.dependents(n, values, positions)
+                )
             )
         # A <- B       A is a dependent of B.
         elif operator == "<-":
             retval = lambda n, m=None, el=None: (
-                predicate(_governor(n, values, positions))
+                predicate(locate.governor(n, values, positions))
             )
-
         # A ->> B      A dominates B (A is an ancestor of B).
         elif operator == "->>":
             retval = lambda n, m=None, el=None: (
-                any(predicate(x, m, el) for x in _descendants(n, values, positions))
+                any(
+                    predicate(x, m, el)
+                    for x in locate.descendants(n, values, positions)
+                )
             )
         # A <<- B      A is dominated by B (A is a descendant of B).
         elif operator == "<<-":
             retval = lambda n, m=None, el=None: any(
-                predicate(x, m, el) for x in _ancestors(n, values, positions)
+                predicate(x, m, el) for x in locate.ancestors(n, values, positions)
             )
 
         # A ->: B      B is the only dependent of A
         elif operator == "->:":
             retval = lambda n, m=None, el=None: (
-                len(_dependents(n, values, positions)) == 1
-                and predicate(_dependents(n, values, positions)[0], m, el)
+                len(locate.dependents(n, values, positions)) == 1
+                and predicate(locate.dependents(n, values, positions)[0], m, el)
             )
 
         # A <-: B      A is the only child of B.
         elif operator == "<-:":
             retval = lambda n, m=None, el=None: (
-                _is_only_child_of_parent(n, values, positions)
-                and predicate(_governor(n, values, positions), m, el)
+                locate.is_only_child_of_parent(n, values, positions)
+                and predicate(locate.governor(n, values, positions), m, el)
             )
         # A ->N B      B is the Nth child of A (the first child is <1).
         # todo: broken?
@@ -393,7 +201,7 @@ def _depgrep_relation_action(_s, _l, tokens, values, positions):
             # capture the index parameter
             retval = (
                 lambda i: lambda n, m=None, el=None: (
-                    0 <= i < len(_dependents(n, values, positions))
+                    0 <= i < len(locate.dependents(n, values, positions))
                     and predicate(n[i], m, el)
                 )
             )(idx - 1)
@@ -403,9 +211,9 @@ def _depgrep_relation_action(_s, _l, tokens, values, positions):
             # capture the index parameter
             retval = (
                 lambda i: lambda n, m=None, el=None: (
-                    0 <= i < len(_governors(n, values, positions))
-                    and (n is _governors(n, values, positions)[i])
-                    and predicate(_governors(n, values, positions), m, el)
+                    0 <= i < len(locate.governors(n, values, positions))
+                    and (n is locate.governors(n, values, positions)[i])
+                    and predicate(locate.governors(n, values, positions), m, el)
                 )
             )(idx - 1)
 
@@ -413,19 +221,21 @@ def _depgrep_relation_action(_s, _l, tokens, values, positions):
         # A ->- B      B is the last child of A (synonymous with A <-1 B).
         elif operator == "->-" or operator == "->-1":
             retval = lambda n, m=None, el=None: (
-                _has_dependent(n, values, positions)
-                and predicate(_dependents(n, values, positions)[-1], m, el)
+                locate.has_dependent(n, values, positions)
+                and predicate(locate.dependents(n, values, positions)[-1], m, el)
             )
         # A -<- B      A is the last child of B (synonymous with A >-1 B).
         elif operator == "-<-" or operator == "-1<-":
             # n must have governor
-            # get n's governor's _dependents
+            # get n's governor's locate.dependents
             # n must be equal to the last og them
             retval = lambda n, m=None, el=None: (
-                _has_governor(n, positions)
-                and _dependents(_governor(n, values, positions), values, positions)[-1]
+                locate.has_governor(n, positions)
+                and locate.dependents(
+                    locate.governor(n, values, positions), values, positions
+                )[-1]
                 == n
-                and predicate(_governor(n, values, positions), m, el)
+                and predicate(locate.governor(n, values, positions), m, el)
             )
 
         # A <-N B     B is the N th-to-last child of A (the last child is <-1).
@@ -434,11 +244,13 @@ def _depgrep_relation_action(_s, _l, tokens, values, positions):
             # capture the index parameter
             retval = (
                 lambda i: lambda n, m=None, el=None: (
-                    _has_dependent(n, values, positions)
+                    locate.has_dependent(n, values, positions)
                     and 0
-                    <= (i + len(_dependents(n, values, positions)))
-                    < len(_dependents(n, values, positions))
-                    and predicate(n[i + len(_dependents(n, values, positions))], m, el)
+                    <= (i + len(locate.dependents(n, values, positions)))
+                    < len(locate.dependents(n, values, positions))
+                    and predicate(
+                        n[i + len(locate.dependents(n, values, positions))], m, el
+                    )
                 )
             )(idx)
         # A >-N B     A is the N th-to-last child of B (the last child is >-1).
@@ -447,40 +259,42 @@ def _depgrep_relation_action(_s, _l, tokens, values, positions):
             # capture the index parameter
             retval = (
                 lambda i: lambda n, m=None, el=None: (
-                    _has_governor(n, positions)
+                    locate.has_governor(n, positions)
                     and 0
-                    <= (i + len(_governors(n, values, positions)))
-                    < len(_governors(n, values, positions))
+                    <= (i + len(locate.governors(n, values, positions)))
+                    < len(locate.governors(n, values, positions))
                     and (
                         n
-                        is _governors(n, values, positions)[
-                            i + len(_governors(n, values, positions))
+                        is locate.governors(n, values, positions)[
+                            i + len(locate.governors(n, values, positions))
                         ]
                     )
-                    and predicate(_governors(n, values, positions), m, el)
+                    and predicate(locate.governors(n, values, positions), m, el)
                 )
             )(idx)
 
         # A + B       A immediately precedes B.
         elif operator == "+":
             retval = lambda n, m=None, el=None: any(
-                predicate(x, m, el) for x in _immediately_after(n, values, positions)
+                predicate(x, m, el)
+                for x in locate.immediately_after(n, values, positions)
             )
         # A - B       A immediately follows B.
         elif operator == "-":
             retval = lambda n, m=None, el=None: any(
-                predicate(x, m, el) for x in _immediately_before(n, values, positions)
+                predicate(x, m, el)
+                for x in locate.immediately_before(n, values, positions)
             )
 
         # A <| B      A precedes B.
         elif operator == "<|":
             retval = lambda n, m=None, el=None: any(
-                predicate(x, m, el) for x in _after(n, values, positions)
+                predicate(x, m, el) for x in locate.after(n, values, positions)
             )
         # A |> B      A follows B.
         elif operator == "|>":
             retval = lambda n, m=None, el=None: any(
-                predicate(x, m, el) for x in _before(n, values, positions)
+                predicate(x, m, el) for x in locate.before(n, values, positions)
             )
         # todo: precedes/follows by maximum distance....
 
@@ -488,29 +302,35 @@ def _depgrep_relation_action(_s, _l, tokens, values, positions):
         elif operator[0] == "+" and operator[1:].isdigit():
             num = int(operator[1:])
             retval = lambda n, m=None, el=None: any(
-                predicate(x, m, el) for x in _after(n, values, positions, places=num)
+                predicate(x, m, el)
+                for x in locate.after(n, values, positions, places=num)
             )
 
         # A -N B      A is N places to the right of B
         elif operator[0] == "-" and operator[1:].isdigit():
             num = int(operator[1:])
             retval = lambda n, m=None, el=None: any(
-                predicate(x, m, el) for x in _before(n, values, positions, places=num)
+                predicate(x, m, el)
+                for x in locate.before(n, values, positions, places=num)
             )
 
         # A $ B       A is a sister of B (and A != B).
         elif operator == "$" or operator == "%":
             retval = lambda n, m=None, el=None: (
-                _has_governor(n, positions)
-                and any(predicate(x, m, el) for x in _sisters(n, values, positions))
+                locate.has_governor(n, positions)
+                and any(
+                    predicate(x, m, el) for x in locate.sisters(n, values, positions)
+                )
             )
 
         elif operator == "$<" or operator == "%..":
             retval = lambda n, m=None, el=None: (
                 any(
                     predicate(x, m, el)
-                    for x in _sisters(n, values, positions)
-                    and any(predicate(x, m, el) for x in _after(n, values, positions))
+                    for x in locate.sisters(n, values, positions)
+                    and any(
+                        predicate(x, m, el) for x in locate.after(n, values, positions)
+                    )
                 )
             )
 
@@ -519,8 +339,10 @@ def _depgrep_relation_action(_s, _l, tokens, values, positions):
             retval = lambda n, m=None, el=None: (
                 any(
                     predicate(x, m, el)
-                    for x in _sisters(n, values, positions)
-                    and any(predicate(x, m, el) for x in _before(n, values, positions))
+                    for x in locate.sisters(n, values, positions)
+                    and any(
+                        predicate(x, m, el) for x in locate.before(n, values, positions)
+                    )
                 )
             )
 
@@ -773,7 +595,7 @@ def _depgrep_segmented_pattern_action(_s, _l, tokens):
     return pattern_segment_pred
 
 
-def _build_depgrep_parser(values, positions, case_sensitive=False):
+def _build_depgrep_parser(values, positions, cs=False):
     """
     Builds a pyparsing-based parser object for tokenizing and
     interpreting depgrep search strings.
@@ -843,9 +665,7 @@ def _build_depgrep_parser(values, positions, case_sensitive=False):
     depgrep_node_label_use_pred.setParseAction(_depgrep_node_label_pred_use_action)
     macro_use.setParseAction(_depgrep_macro_use_action)
     depgrep_node.setParseAction(
-        lambda x, y, z: _depgrep_node_action(
-            x, y, z, positions=positions, case_sensitive=case_sensitive
-        )
+        lambda x, y, z: _depgrep_node_action(x, y, z, positions=positions, cs=cs)
     )
     depgrep_node_expr2.setParseAction(_depgrep_bind_node_label_action)
     depgrep_parens.setParseAction(_depgrep_parens_action)
@@ -875,7 +695,7 @@ def depgrep_compile(depgrep_string, values=False, positions=None, case_sensitive
     lambda function.
     """
     parser = _build_depgrep_parser(
-        values=values, positions=positions, case_sensitive=case_sensitive
+        values=values, positions=positions, cs=case_sensitive
     )
     if isinstance(depgrep_string, bytes):
         depgrep_string = depgrep_string.decode()
