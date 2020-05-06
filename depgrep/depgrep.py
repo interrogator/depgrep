@@ -82,7 +82,8 @@ def _depgrep_node_action(_s, _l, tokens, positions, cs=False):
                 cs = False
             else:
                 cs = True
-
+        else:
+            attr = "w"
         pos = positions[attr.lower()]
 
         # if the token is 'anything', just return true
